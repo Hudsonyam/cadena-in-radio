@@ -11,6 +11,8 @@ type NewsItem = {
 };
 
 const MAX_WORDS = 130;
+const OPENING = "Esto es Informe a la hora.";
+const CLOSING = "Soy Mariana del Río. No olviden sintonizarnos por La 96 y La Intensa.";
 const DEFAULT_AGENT_ENDPOINT = "https://yamilm-ia-7643-resource.services.ai.azure.com/api/projects/yamilm-ia-7643/agents/Agente-de-noticias-a-la-hora/endpoint/protocols/openai/responses?api-version=v1";
 const TOKEN_SCOPE = "https://ai.azure.com/.default";
 const azureCredential = new DefaultAzureCredential();
@@ -68,6 +70,16 @@ function trimToWords(text: string, maxWords: number) {
     .map((paragraph) => paragraph.trim())
     .filter(Boolean)
     .join("\n\n");
+}
+
+function addFixedOpeningAndClosing(script: string) {
+  const news = script
+    .replace(/^\s*esto es informe a la hora[.!…]?\s*/iu, "")
+    .replace(/\s*(?:soy\s+)?mariana del r[ií]o\.\s*no olviden sintonizarnos por la 96 y la intensa\.?\s*$/iu, "")
+    .trim();
+  const fixedWords = `${OPENING} ${CLOSING}`.split(/\s+/).length;
+  const limitedNews = trimToWords(news, MAX_WORDS - fixedWords);
+  return [OPENING, limitedNews, CLOSING].filter(Boolean).join("\n\n");
 }
 
 async function getFeed(section: Section, query: string): Promise<NewsItem[]> {
@@ -132,10 +144,10 @@ export async function POST(request: Request) {
     }
 
     const newsContext = stories.map((story, index) => `${index + 1}. [${story.section}] ${story.title} — Fuente: ${story.source} — Publicado: ${story.publishedAt} — URL: ${story.url}`).join("\n");
-    const prompt = `Redacta un corte informativo para radio en español mexicano natural, claro y neutral. Usa exclusivamente hechos respaldados por los titulares; no inventes ni completes información. Parafrasea las noticias y selecciona las 4 o 5 más relevantes para la audiencia, priorizando Puebla y su zona metropolitana; incluye noticias de México, internacionales, espectáculos, clima y deportes solo cuando haya información pertinente y fiable. Omite las categorías sin noticias útiles. Para clima, menciona únicamente pronósticos expresos en los titulares.\n\nFORMATO OBLIGATORIO: entrega únicamente el texto de las noticias, con una noticia por párrafo, separadas por una línea en blanco, igual que un boletín leído al aire. Cada párrafo debe ser una o dos oraciones completas, directas y autocontenidas. No pongas saludo ni despedida, encabezados, nombres de secciones, viñetas, números, títulos, fuentes, enlaces ni comentarios. No unas todas las notas en un solo párrafo. Máximo 115 palabras en total para que el corte no exceda 1 minuto con 10 segundos.\n\nEnfoque editorial: ${focus || "Lo más relevante de la hora"}.\n\nTitulares recientes consultados:\n${newsContext}`;
+    const prompt = `Redacta el cuerpo de un corte informativo para radio en español mexicano natural, claro y neutral. Usa exclusivamente hechos respaldados por los titulares; no inventes ni completes información. Parafrasea las noticias y selecciona las 4 o 5 más relevantes para la audiencia, priorizando Puebla y su zona metropolitana; incluye noticias de México, internacionales, espectáculos, clima y deportes solo cuando haya información pertinente y fiable. Omite las categorías sin noticias útiles. Para clima, menciona únicamente pronósticos expresos en los titulares.\n\nFORMATO OBLIGATORIO: entrega únicamente el cuerpo de las noticias, con una noticia por párrafo, separadas por una línea en blanco, igual que un boletín leído al aire. Cada párrafo debe ser una o dos oraciones completas, directas y autocontenidas. No incluyas saludo ni despedida: la aplicación agregará la apertura y el cierre oficiales. No pongas encabezados, nombres de secciones, viñetas, números, títulos, fuentes, enlaces ni comentarios. No unas todas las notas en un solo párrafo. Máximo 105 palabras en el cuerpo; la aplicación añadirá la apertura y el cierre dentro del límite total de 130 palabras.\n\nEnfoque editorial: ${focus || "Lo más relevante de la hora"}.\n\nTitulares recientes consultados:\n${newsContext}`;
     const accessToken = await azureCredential.getToken(TOKEN_SCOPE);
     if (!accessToken) {
-      return NextResponse.json({ error: "Microsoft Entra no entregó un token. Inicia sesión con Azure CLI (`az login`) y vuelve a intentar." }, { status: 503 });
+      return NextResponse.json({ error: "Microsoft Entra no entregó un token. Revisa la identidad administrada en Azure o inicia sesión con Azure CLI (`az login`) en desarrollo local." }, { status: 503 });
     }
 
     const aiResponse = await fetch(getAgentRequestUrl(agentEndpoint), {
@@ -149,7 +161,7 @@ export async function POST(request: Request) {
       const detail = await aiResponse.text();
       console.error("AI provider error", aiResponse.status, detail.slice(0, 500));
       const error = aiResponse.status === 401 || aiResponse.status === 403
-        ? `Microsoft Foundry respondió ${aiResponse.status}. Ejecuta az login y confirma que tu usuario tenga el rol Foundry Agent Consumer en el proyecto o agente.`
+        ? `Microsoft Foundry respondió ${aiResponse.status}. Confirma que la identidad administrada de la aplicación (o tu usuario local) tenga el rol Foundry Agent Consumer en el proyecto o agente.`
         : `Microsoft Foundry respondió ${aiResponse.status}. Revisa la disponibilidad del endpoint del agente.`;
       return NextResponse.json({ error }, { status: 502 });
     }
@@ -160,11 +172,11 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "El agente no devolvió texto en la respuesta. Revisa su configuración y protocolo Responses." }, { status: 502 });
     }
 
-    return NextResponse.json({ script: trimToWords(script, MAX_WORDS), stories, generatedAt: new Date().toISOString() });
+    return NextResponse.json({ script: addFixedOpeningAndClosing(script), stories, generatedAt: new Date().toISOString() });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Error inesperado";
     console.error("Cut generation error", message);
     const authError = /credential|az login|authentication/i.test(message);
-    return NextResponse.json({ error: authError ? "No se pudo autenticar en Microsoft Entra. Ejecuta az login en la terminal y vuelve a intentar." : "No se pudo completar el corte. Comprueba tu conexión, las fuentes y el endpoint del agente." }, { status: 500 });
+    return NextResponse.json({ error: authError ? "No se pudo autenticar en Microsoft Entra. Revisa la identidad administrada en Azure o inicia sesión con Azure CLI (`az login`) en desarrollo local." : "No se pudo completar el corte. Comprueba tu conexión, las fuentes y el endpoint del agente." }, { status: 500 });
   }
 }

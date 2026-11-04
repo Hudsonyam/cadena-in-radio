@@ -1,0 +1,6 @@
+.audio-button{min-width:145px}
+.audio-button:disabled{opacity:.72;cursor:wait}
+.audio-button .spinner{border-color:#75817d40;border-top-color:#75817d}
+.audio-caption{margin:8px 0 0;color:#89958f;font-size:9px}
+.audio-error{margin-top:10px}
+@media(max-width:420px){.audio-button{flex:1}}

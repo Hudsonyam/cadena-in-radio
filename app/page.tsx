@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import "./audio.css";
 
 type Section = "Puebla" | "México" | "Internacionales" | "Espectáculos" | "Clima" | "Deportes";
 type NewsItem = { title: string; url: string; source: string; publishedAt: string; section: Section };
@@ -16,11 +17,13 @@ export default function Home() {
   const [error, setError] = useState("");
   const [focus, setFocus] = useState("Lo más relevante de la hora");
   const [copied, setCopied] = useState(false);
+  const [audioLoading, setAudioLoading] = useState(false);
+  const [audioError, setAudioError] = useState("");
   const wordCount = useMemo(() => countWords(cut?.script ?? ""), [cut]);
   const duration = Math.ceil((wordCount / 125) * 60);
 
   async function generateCut() {
-    setLoading(true); setError(""); setCopied(false);
+    setLoading(true); setError(""); setCopied(false); setAudioError("");
     try {
       const response = await fetch("/api/corte", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ focus }) });
       const result = await response.json();
@@ -33,6 +36,34 @@ export default function Home() {
   async function copyScript() {
     if (!cut) return;
     await navigator.clipboard.writeText(cut.script); setCopied(true); window.setTimeout(() => setCopied(false), 1800);
+  }
+
+  async function downloadAudio() {
+    if (!cut) return;
+    setAudioLoading(true);
+    setAudioError("");
+    try {
+      const response = await fetch("/api/audio", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ script: cut.script }),
+      });
+      if (!response.ok) {
+        const result = await response.json().catch(() => ({}));
+        throw new Error(result.error ?? "No se pudo generar el audio.");
+      }
+
+      const audioUrl = URL.createObjectURL(await response.blob());
+      const link = document.createElement("a");
+      link.href = audioUrl;
+      link.download = `corte-radio-${new Date().toISOString().slice(0, 10)}.mp3`;
+      link.click();
+      window.setTimeout(() => URL.revokeObjectURL(audioUrl), 1000);
+    } catch (issue) {
+      setAudioError(issue instanceof Error ? issue.message : "Ocurrió un error inesperado al generar el audio.");
+    } finally {
+      setAudioLoading(false);
+    }
   }
 
   function downloadScript() {
@@ -68,7 +99,7 @@ export default function Home() {
             </section>
 
             <section className="panel rundown-panel" aria-live="polite"><div className="panel-heading rundown-heading"><div><div className="section-label">VISTA PREVIA</div><h2>Guion de locución</h2></div>{cut && <span className="ready-status"><i /> LISTO</span>}</div>
-              {cut ? <><div className="script-meta"><span><i className="meta-clock">◷</i> {formatTime(cut.generatedAt)} hrs</span><span className="meta-separator">·</span><span>{wordCount} palabras</span><span className="meta-separator">·</span><span>{duration} seg aprox.</span></div><div className="script-paper"><div className="script-mark">EN VIVO <span>●</span></div><p>{cut.script}</p></div><div className="timing-row"><div className="timing-label"><span>TIEMPO ESTIMADO</span><strong>{String(Math.floor(duration / 60)).padStart(2, "0")}:{String(duration % 60).padStart(2, "0")} <small>/ 01:10</small></strong></div><div className="progress-track"><span style={{ width: `${Math.min(100, (duration / 70) * 100)}%` }} /></div><div className="safe-label"><i /> EN TIEMPO</div></div><div className="script-actions"><button className="secondary-button" onClick={copyScript}>{copied ? "✓ Copiado" : "▢ Copiar guion"}</button><button className="secondary-button" onClick={downloadScript}>↓ Descargar .txt</button><button className="regenerate-button" onClick={generateCut} disabled={loading} aria-label="Generar otro corte">↻</button></div></> : <div className="preview-empty"><div className="waveform">{Array.from({ length: 19 }, (_, index) => <i key={index} />)}</div><span className="preview-empty-icon">✳</span><strong>El espacio de tu próxima historia</strong><p>Genera un corte para ver el guion, el tiempo estimado y las fuentes consultadas.</p><div className="preview-time">OBJETIVO: MENOS DE 01:10</div></div>}
+              {cut ? <><div className="script-meta"><span><i className="meta-clock">◷</i> {formatTime(cut.generatedAt)} hrs</span><span className="meta-separator">·</span><span>{wordCount} palabras</span><span className="meta-separator">·</span><span>{duration} seg aprox.</span></div><div className="script-paper"><div className="script-mark">EN VIVO <span>●</span></div><p>{cut.script}</p></div><div className="timing-row"><div className="timing-label"><span>TIEMPO ESTIMADO</span><strong>{String(Math.floor(duration / 60)).padStart(2, "0")}:{String(duration % 60).padStart(2, "0")} <small>/ 01:10</small></strong></div><div className="progress-track"><span style={{ width: `${Math.min(100, (duration / 70) * 100)}%` }} /></div><div className="safe-label"><i /> EN TIEMPO</div></div><div className="script-actions"><button className="secondary-button audio-button" onClick={downloadAudio} disabled={audioLoading}>{audioLoading ? <><span className="spinner" /> Generando MP3…</> : "♫ Generar audio MP3"}</button><button className="secondary-button" onClick={copyScript}>{copied ? "✓ Copiado" : "▢ Copiar guion"}</button><button className="secondary-button" onClick={downloadScript}>↓ Descargar .txt</button><button className="regenerate-button" onClick={generateCut} disabled={loading} aria-label="Generar otro corte">↻</button></div>{audioError && <div className="error-box audio-error" role="alert"><strong>No se pudo generar el audio.</strong><p>{audioError}</p></div>}<p className="audio-caption" aria-live="polite">Voz en español de México generada con Azure Speech.</p></> : <div className="preview-empty"><div className="waveform">{Array.from({ length: 19 }, (_, index) => <i key={index} />)}</div><span className="preview-empty-icon">✳</span><strong>El espacio de tu próxima historia</strong><p>Genera un corte para ver el guion, el tiempo estimado y las fuentes consultadas.</p><div className="preview-time">OBJETIVO: MENOS DE 01:10</div></div>}
             </section>
           </div>
 
