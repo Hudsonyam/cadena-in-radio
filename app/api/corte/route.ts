@@ -11,6 +11,8 @@ type NewsItem = {
 };
 
 const MAX_WORDS = 130;
+const RECENT_WINDOW_MS = 6 * 60 * 60 * 1000;
+const NEWS_TIME_ZONE = "America/Mexico_City";
 const OPENING = "Esto es Informe a la hora.";
 const CLOSING = "Soy Mariana del Río. No olviden sintonizarnos por La 96 y La Intensa.";
 const DEFAULT_AGENT_ENDPOINT = "https://yamilm-ia-7643-resource.services.ai.azure.com/api/projects/yamilm-ia-7643/agents/Agente-de-noticias-a-la-hora/endpoint/protocols/openai/responses?api-version=v1";
@@ -49,6 +51,28 @@ function readTag(xml: string, tag: string) {
   return match ? decodeXml(match[1]).trim() : "";
 }
 
+function getMexicoDate(date: Date) {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: NEWS_TIME_ZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(date);
+  const year = parts.find((part) => part.type === "year")?.value;
+  const month = parts.find((part) => part.type === "month")?.value;
+  const day = parts.find((part) => part.type === "day")?.value;
+  return year && month && day ? `${year}-${month}-${day}` : "";
+}
+
+function isRecentNews(publishedAt: string, requestTime: Date) {
+  const publishedTime = new Date(publishedAt);
+  const age = requestTime.getTime() - publishedTime.getTime();
+  return Number.isFinite(publishedTime.getTime())
+    && age >= 0
+    && age <= RECENT_WINDOW_MS
+    && getMexicoDate(publishedTime) === getMexicoDate(requestTime);
+}
+
 function trimToWords(text: string, maxWords: number) {
   const cleanText = text
     .replace(/\*\*/g, "")
@@ -82,9 +106,10 @@ function addFixedOpeningAndClosing(script: string) {
   return [OPENING, limitedNews, CLOSING].filter(Boolean).join("\n\n");
 }
 
-async function getFeed(section: Section, query: string): Promise<NewsItem[]> {
+async function getFeed(section: Section, query: string, requestTime: Date): Promise<NewsItem[]> {
   const customFeed = process.env[FEED_ENV[section]];
-  const url = customFeed || `https://news.google.com/rss/search?q=${encodeURIComponent(query)}&hl=es-419&gl=MX&ceid=MX:es-419`;
+  const searchQuery = `${query} when:6h`;
+  const url = customFeed || `https://news.google.com/rss/search?q=${encodeURIComponent(searchQuery)}&hl=es-419&gl=MX&ceid=MX:es-419`;
   const response = await fetch(url, {
     headers: { "User-Agent": "InformeALaHoraNewsroom/1.0", Accept: "application/rss+xml, application/xml, text/xml" },
     signal: AbortSignal.timeout(9000),
@@ -93,16 +118,23 @@ async function getFeed(section: Section, query: string): Promise<NewsItem[]> {
   if (!response.ok) throw new Error(`El feed de ${section} respondió ${response.status}.`);
   const xml = await response.text();
   return [...xml.matchAll(/<item(?:\s[^>]*)?>([\s\S]*?)<\/item>/gi)]
-    .slice(0, 7)
     .map((match) => {
       const item = match[1];
       const title = readTag(item, "title");
       const url = readTag(item, "link");
       const published = readTag(item, "pubDate");
       const source = readTag(item, "source") || "Google Noticias";
-      return { title, url, source, publishedAt: published ? new Date(published).toISOString() : new Date().toISOString(), section };
+      const publishedDate = published ? new Date(published) : null;
+      return {
+        title,
+        url,
+        source,
+        publishedAt: publishedDate && Number.isFinite(publishedDate.getTime()) ? publishedDate.toISOString() : "",
+        section,
+      };
     })
-    .filter((item) => item.title && item.url && /^https?:\/\//i.test(item.url));
+    .filter((item) => item.title && item.url && /^https?:\/\//i.test(item.url) && item.publishedAt && isRecentNews(item.publishedAt, requestTime))
+    .slice(0, 7);
 }
 
 function getResponseText(payload: { output_text?: unknown; output?: unknown }) {
@@ -133,12 +165,13 @@ export async function POST(request: Request) {
   try {
     const body = await request.json().catch(() => ({}));
     const focus = typeof body.focus === "string" ? body.focus.trim().slice(0, 100) : "Lo más relevante de la hora";
-    const results = await Promise.allSettled(FEEDS.map(({ section, query }) => getFeed(section, query)));
+    const requestTime = new Date();
+    const results = await Promise.allSettled(FEEDS.map(({ section, query }) => getFeed(section, query, requestTime)));
     const stories = results.flatMap((result) => result.status === "fulfilled" ? result.value : []);
     if (stories.length < 3) {
       const failures = results.filter((result) => result.status === "rejected").length;
       return NextResponse.json(
-        { error: failures === FEEDS.length ? "No se pudo acceder a las fuentes RSS. Revisa tu conexión o configura feeds alternativos." : "Hay muy pocos titulares disponibles para preparar un corte confiable. Intenta de nuevo en unos minutos." },
+        { error: failures === FEEDS.length ? "No se pudo acceder a las fuentes RSS. Revisa tu conexión o configura feeds alternativos." : "Hay menos de tres titulares publicados hoy en las últimas seis horas. Intenta de nuevo más tarde." },
         { status: 502 },
       );
     }

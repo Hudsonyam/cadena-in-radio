@@ -1,6 +1,6 @@
 # Informe a la hora — generador de cortes
 
-Aplicación web para preparar cortes de noticias breves para locución, con secciones de Puebla, México, Internacionales, Espectáculos, Clima y Deportes. Obtiene titulares desde feeds RSS, los envía al agente Responses de Microsoft Foundry y limita la salida a 130 palabras para dejar margen respecto al máximo de 1 minuto con 10 segundos. Cada guion comienza con «Esto es Informe a la hora» y termina con «Soy Mariana del Río. No olviden sintonizarnos por La 96 y La Intensa».
+Aplicación web para preparar cortes de noticias breves para locución, con secciones de Puebla, México, Internacionales, Espectáculos, Clima y Deportes. Obtiene titulares de las últimas seis horas del día en curso (hora de Ciudad de México), los envía al agente Responses de Microsoft Foundry y limita la salida a 130 palabras para dejar margen respecto al máximo de 1 minuto con 10 segundos. Cada guion comienza con «Esto es Informe a la hora» y termina con «Soy Mariana del Río. No olviden sintonizarnos por La 96 y La Intensa».
 
 ## Requisitos
 
@@ -98,7 +98,7 @@ En local, inicia sesión con `az login`. Si cambias de recurso, asigna a tu usua
 
 ## Fuentes
 
-Por defecto consulta Google Noticias RSS con búsquedas en español para las seis secciones: Puebla, México, Internacionales, Espectáculos, Clima y Deportes. Se pueden sustituir por feeds RSS propios mediante `NEWS_RSS_PUEBLA`, `NEWS_RSS_MEXICO`, `NEWS_RSS_INTERNACIONALES`, `NEWS_RSS_ESPECTACULOS`, `NEWS_RSS_CLIMA` y `NEWS_RSS_DEPORTES`. El guion muestra enlaces a los titulares para que la redacción pueda verificar cada nota antes de salir al aire.
+Por defecto consulta Google Noticias RSS con búsquedas en español para las seis secciones: Puebla, México, Internacionales, Espectáculos, Clima y Deportes. La búsqueda solicita resultados de las últimas seis horas y el servidor verifica que cada titular tenga una fecha válida, que pertenezca al día actual en la zona horaria de Ciudad de México y que no tenga más de seis horas al momento de iniciar la consulta. También se aplica este filtro a los feeds RSS propios configurados mediante `NEWS_RSS_PUEBLA`, `NEWS_RSS_MEXICO`, `NEWS_RSS_INTERNACIONALES`, `NEWS_RSS_ESPECTACULOS`, `NEWS_RSS_CLIMA` y `NEWS_RSS_DEPORTES`; las notas sin fecha válida se descartan. Si no hay suficientes notas recientes, la aplicación pide intentar de nuevo en lugar de incluir noticias viejas. El guion muestra enlaces a los titulares para que la redacción pueda verificar cada nota antes de salir al aire.
 
 ## Uso editorial
 
