@@ -23,7 +23,7 @@ const FEEDS: { section: Section; query: string }[] = [
   { section: "México", query: "noticias México" },
   { section: "Internacionales", query: "noticias internacionales mundo" },
   { section: "Espectáculos", query: "espectáculos entretenimiento México" },
-  { section: "Clima", query: "clima Puebla pronóstico del tiempo" },
+  { section: "Clima", query: 'clima "ciudad de Puebla" OR "Puebla capital" OR "Puebla, Puebla" OR "zona metropolitana de Puebla"' },
   { section: "Deportes", query: "deportes Puebla México" },
 ];
 const FEED_ENV: Record<Section, string> = {
@@ -71,6 +71,11 @@ function isRecentNews(publishedAt: string, requestTime: Date) {
     && age >= 0
     && age <= RECENT_WINDOW_MS
     && getMexicoDate(publishedTime) === getMexicoDate(requestTime);
+}
+
+function isPueblaCityClimateTitle(title: string) {
+  const normalizedTitle = title.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+  return /\b(?:ciudad de puebla|puebla capital|puebla, puebla|zona metropolitana de puebla|municipio de puebla|capital poblana)\b/.test(normalizedTitle);
 }
 
 function trimToWords(text: string, maxWords: number) {
@@ -134,6 +139,7 @@ async function getFeed(section: Section, query: string, requestTime: Date): Prom
       };
     })
     .filter((item) => item.title && item.url && /^https?:\/\//i.test(item.url) && item.publishedAt && isRecentNews(item.publishedAt, requestTime))
+    .filter((item) => section !== "Clima" || isPueblaCityClimateTitle(item.title))
     .slice(0, 7);
 }
 
@@ -177,7 +183,7 @@ export async function POST(request: Request) {
     }
 
     const newsContext = stories.map((story, index) => `${index + 1}. [${story.section}] ${story.title} — Fuente: ${story.source} — Publicado: ${story.publishedAt} — URL: ${story.url}`).join("\n");
-    const prompt = `Redacta el cuerpo de un corte informativo para radio en español mexicano natural, claro y neutral. Usa exclusivamente hechos respaldados por los titulares; no inventes ni completes información. Parafrasea las noticias y selecciona las 4 o 5 más relevantes para la audiencia, priorizando Puebla y su zona metropolitana; incluye noticias de México, internacionales, espectáculos, clima y deportes solo cuando haya información pertinente y fiable. Omite las categorías sin noticias útiles. Para clima, menciona únicamente pronósticos expresos en los titulares.\n\nFORMATO OBLIGATORIO: entrega únicamente el cuerpo de las noticias, con una noticia por párrafo, separadas por una línea en blanco, igual que un boletín leído al aire. Cada párrafo debe ser una o dos oraciones completas, directas y autocontenidas. No incluyas saludo ni despedida: la aplicación agregará la apertura y el cierre oficiales. No pongas encabezados, nombres de secciones, viñetas, números, títulos, fuentes, enlaces ni comentarios. No unas todas las notas en un solo párrafo. Máximo 105 palabras en el cuerpo; la aplicación añadirá la apertura y el cierre dentro del límite total de 130 palabras.\n\nEnfoque editorial: ${focus || "Lo más relevante de la hora"}.\n\nTitulares recientes consultados:\n${newsContext}`;
+    const prompt = `Redacta el cuerpo de un corte informativo para radio en español mexicano natural, claro y neutral. Usa exclusivamente hechos respaldados por los titulares; no inventes ni completes información. Parafrasea las noticias y selecciona las 4 o 5 más relevantes para la audiencia, priorizando Puebla y su zona metropolitana; incluye noticias de México, internacionales, espectáculos, clima y deportes solo cuando haya información pertinente y fiable. Omite las categorías sin noticias útiles. Para clima, informa exclusivamente sobre la ciudad de Puebla (Puebla capital y su zona metropolitana); no incluyas pronósticos de otros municipios, estados o regiones, aunque aparezcan en las fuentes. Menciona únicamente pronósticos expresos en los titulares.\n\nFORMATO OBLIGATORIO: entrega únicamente el cuerpo de las noticias, con una noticia por párrafo, separadas por una línea en blanco, igual que un boletín leído al aire. Cada párrafo debe ser una o dos oraciones completas, directas y autocontenidas. No incluyas saludo ni despedida: la aplicación agregará la apertura y el cierre oficiales. No pongas encabezados, nombres de secciones, viñetas, números, títulos, fuentes, enlaces ni comentarios. No unas todas las notas en un solo párrafo. Máximo 105 palabras en el cuerpo; la aplicación añadirá la apertura y el cierre dentro del límite total de 130 palabras.\n\nEnfoque editorial: ${focus || "Lo más relevante de la hora"}.\n\nTitulares recientes consultados:\n${newsContext}`;
     const accessToken = await azureCredential.getToken(TOKEN_SCOPE);
     if (!accessToken) {
       return NextResponse.json({ error: "Microsoft Entra no entregó un token. Revisa la identidad administrada en Azure o inicia sesión con Azure CLI (`az login`) en desarrollo local." }, { status: 503 });
